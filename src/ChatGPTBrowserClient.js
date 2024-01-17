@@ -67,7 +67,7 @@ export default class ChatGPTBrowserClient {
                 ] : undefined,
                 parent_message_id: parentMessageId,
                 model: this.model,
-            }),
+            })
         };
 
         if (this.options.proxy) {
@@ -123,13 +123,14 @@ export default class ChatGPTBrowserClient {
                         }
                     },
                     onerror(err) {
+                        console.error('接口报错: ', JSON.stringify(err, null, 2));
                         if (debug) {
                             console.debug(err);
                         }
                         // rethrow to stop the operation
                         throw err;
                     },
-                    onmessage(eventMessage) {
+                    async onmessage(eventMessage) {
                         if (debug) {
                             console.debug(eventMessage);
                         }
@@ -152,12 +153,35 @@ export default class ChatGPTBrowserClient {
                             const data = JSON.parse(eventMessage.data);
                             // ignore any messages that are not from the assistant
                             if (data.message?.author?.role !== 'assistant') {
+                                if (data.message?.author?.role === 'tool' && data.message?.content?.content_type === 'multimodal_text') {
+                                    const originalStr = data.message.content.parts[0].asset_pointer
+                                    const regex = /file-service:\/\/(.*)/;
+                                    const fileKey = originalStr.match(regex)[1]
+                                    const url = `https://chat-shared3.zhile.io/api/files/${fileKey}/download`
+                                    await fetch(url, {
+                                        method: 'GET',
+                                        headers: { 'Cookie': 'credential=RZIDMkcmll0w1cPM5Qku-b0wGMKFl-n9IE5c5Ud_omPT0uR-fFHVmen01-KUfE7aOvVyhBEE10NxCBV-VleSvr83b5mQgToe-fBzpc7JoUARDfyulUedYFVtKPVQuoo' }
+                                    }).then(response => response.json())
+                                        .then(data => console.log(data.download_url))
+                                        .catch(error => console.error('Error:', error));
+                                }
+
                                 return;
                             }
-                            const lastMessage = lastEvent ? lastEvent.message.content.parts[0] : '';
-                            const newMessage = data.message.content.parts[0];
-                            // get the difference between the current text and the previous text
-                            const difference = newMessage.substring(lastMessage.length);
+
+                            let difference = ''
+                            if (data.message.content.content_type === 'text') {
+                                if (lastEvent && lastEvent.message.content.content_type !== 'text') lastEvent = null
+                                const lastMessage = lastEvent ? lastEvent.message.content.parts[0] : '';
+                                const newMessage = data.message.content.parts[0];
+                                // get the difference between the current text and the previous text
+                                difference = newMessage.substring(lastMessage.length);
+                            } else {
+                                const lastMessage = lastEvent ? lastEvent.message.content.text : '';
+                                const newMessage = data.message.content.text;
+                                // get the difference between the current text and the previous text
+                                difference = newMessage.substring(lastMessage.length);
+                            }
                             lastEvent = data;
                             onProgress(difference);
                         } catch (err) {
@@ -237,7 +261,7 @@ export default class ChatGPTBrowserClient {
                 parentMessageId,
                 message: userMessage,
             },
-            opts.onProgress || (() => {}),
+            opts.onProgress || (() => { }),
             opts.abortController || new AbortController(),
             opts?.onEventMessage,
         );
